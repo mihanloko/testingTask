@@ -1,15 +1,13 @@
 package com.loko.sbertask.web;
 
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.sql.*;
 
 @RestController
 public class MyController {
     private String url = "jdbc:mysql://localhost:3306/";
+    private String dbName = "data";
     private String userName = "loko";
     private String password = "rusakov";
 
@@ -33,10 +31,10 @@ public class MyController {
             return false;
         }
 
-        return restorePersonTAble() && restorePurchaseTAble() && restoreStatusTAble();
+        return restorePersonTable() && restorePurchaseTAble() && restoreStatusTAble();
     }
 
-    private boolean restorePersonTAble() {
+    private boolean restorePersonTable() {
         try {
             Class.forName("com.mysql.jdbc.Driver");
         }
@@ -45,18 +43,19 @@ public class MyController {
             return false;
         }
         try {
-            Connection connection = DriverManager.getConnection(url + "data", userName, password);
+            Connection connection = DriverManager.getConnection(url + dbName, userName, password);
             Statement statement = connection.createStatement();
-            statement.executeUpdate("create table personTable\n" +
+            statement.executeUpdate("create table if not exists personTable\n" +
                     "(\n" +
-                    "\tid int auto_increment,\n" +
-                    "\tname varchar(30) not null,\n" +
-                    "\tsecondName varchar(30) not null,\n" +
-                    "\tlogin varchar(30) not null,\n" +
-                    "\tpass varchar(30) not null,\n" +
-                    "\tconstraint personTable_pk\n" +
-                    "\t\tprimary key (id)\n" +
-                    ");");
+                    "  id         int auto_increment\n" +
+                    "    primary key,\n" +
+                    "  name       varchar(30) not null,\n" +
+                    "  secondName varchar(30) not null,\n" +
+                    "  login      varchar(30) not null,\n" +
+                    "  pass       varchar(30) not null,\n" +
+                    "  constraint personTable_login_uindex\n" +
+                    "    unique (login)\n" +
+                    ");\n");
             statement.close();
             connection.close();
         }
@@ -76,9 +75,9 @@ public class MyController {
             return false;
         }
         try {
-            Connection connection = DriverManager.getConnection(url + "data", userName, password);
+            Connection connection = DriverManager.getConnection(url + dbName, userName, password);
             Statement statement = connection.createStatement();
-            statement.executeUpdate("create table purchaseTable\n" +
+            statement.executeUpdate("create table if not exists purchaseTable \n" +
                     "(\n" +
                     "\tid int auto_increment,\n" +
                     "\tfinishTime datetime not null,\n" +
@@ -110,9 +109,9 @@ public class MyController {
             return false;
         }
         try {
-            Connection connection = DriverManager.getConnection(url + "data", userName, password);
+            Connection connection = DriverManager.getConnection(url + dbName, userName, password);
             Statement statement = connection.createStatement();
-            statement.executeUpdate("create table statusTable\n" +
+            statement.executeUpdate("create table if not exists statusTable\n" +
                     "(\n" +
                     "\tid int auto_increment,\n" +
                     "\tname varchar(30) not null,\n" +
@@ -132,6 +131,58 @@ public class MyController {
         return true;
     }
 
+    @RequestMapping(method = RequestMethod.POST, value = "/register")
+    public String registerNewUser(@RequestParam(value = "name") String nameParam,
+                                  @RequestParam(value = "secondName") String secondNameParam,
+                                  @RequestParam(value = "login") String loginParam,
+                                  @RequestParam(value = "password") String passParam) {
+        try {
+            Class.forName("com.mysql.jdbc.Driver");
+        }
+        catch (ClassNotFoundException e) {
+            e.printStackTrace();
+            return "Driver error";
+        }
 
+        Connection connection;
+        Statement statement;
+        try {
+            connection = DriverManager.getConnection(url + dbName, userName, password);
+        } catch (SQLException e) {
+            restoreDatabase();
+            try {
+                connection = DriverManager.getConnection(url + dbName, userName, password);
+            } catch (SQLException e1) {
+                e1.printStackTrace();
+                return "SQL error";
+            }
+        }
+        try {
+            statement = connection.createStatement();
+            ResultSet rs = statement.executeQuery("select * from personTable where login = \'"
+            + loginParam + "\';");
+            if (rs.next()) {
+                rs.close();
+                statement.close();
+                connection.close();
+                return "логин уже существует";
+            }
+
+            statement.executeUpdate("insert into personTable(name, secondName, login, pass) " +
+                    "values (\'" + nameParam + "\', \'" + secondNameParam +
+                    "\', \'" + loginParam + "\', \'" + passParam + "\');");
+
+            rs.close();
+            statement.close();
+            connection.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+            restorePersonTable();
+            return "SQL error";
+        }
+
+
+        return "Регистрация удачна";
+    }
 
 }
