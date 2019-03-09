@@ -31,7 +31,7 @@ public class MyController {
             return false;
         }
 
-        return restorePersonTable() && restorePurchaseTAble() && restoreStatusTAble();
+        return restorePersonTable() && restorePurchaseTAble();
     }
 
     private boolean restorePersonTable() {
@@ -55,7 +55,7 @@ public class MyController {
                     "  pass       varchar(30) not null,\n" +
                     "  constraint personTable_login_uindex\n" +
                     "    unique (login)\n" +
-                    ");\n");
+                    ");");
             statement.close();
             connection.close();
         }
@@ -77,50 +77,17 @@ public class MyController {
         try {
             Connection connection = DriverManager.getConnection(url + dbName, userName, password);
             Statement statement = connection.createStatement();
-            statement.executeUpdate("create table if not exists purchaseTable \n" +
+            statement.executeUpdate("create table purchaseTable\n" +
                     "(\n" +
-                    "\tid int auto_increment,\n" +
-                    "\tfinishTime datetime not null,\n" +
-                    "\tnameOfThing varchar(100) not null,\n" +
-                    "\tprice double null,\n" +
-                    "\tstatusId int not null,\n" +
-                    "\townerId int not null,\n" +
-                    "\tisRegular bool not null,\n" +
-                    "\tconstraint purchaseTable_pk\n" +
-                    "\t\tprimary key (id)\n" +
-                    ");\n" +
-                    "\n");
-            statement.close();
-            connection.close();
-        }
-        catch (SQLException e) {
-            e.printStackTrace();
-            return false;
-        }
-        return true;
-    }
-
-    private boolean restoreStatusTAble() {
-        try {
-            Class.forName("com.mysql.jdbc.Driver");
-        }
-        catch (ClassNotFoundException e) {
-            e.printStackTrace();
-            return false;
-        }
-        try {
-            Connection connection = DriverManager.getConnection(url + dbName, userName, password);
-            Statement statement = connection.createStatement();
-            statement.executeUpdate("create table if not exists statusTable\n" +
-                    "(\n" +
-                    "\tid int auto_increment,\n" +
-                    "\tname varchar(30) not null,\n" +
-                    "\tconstraint statusTable_pk\n" +
-                    "\t\tprimary key (id)\n" +
+                    "  id          int auto_increment\n" +
+                    "    primary key,\n" +
+                    "  finishTime  date         not null,\n" +
+                    "  nameOfThing varchar(100) not null,\n" +
+                    "  price       double       null,\n" +
+                    "  status      tinyint(1)   not null,\n" +
+                    "  ownerId     int          not null,\n" +
+                    "  isRegular   tinyint(1)   not null\n" +
                     ");");
-            statement.executeUpdate("insert into statusTable (name) values ('в процессе')");
-            statement.executeUpdate("insert into statusTable (name) values ('выполнено')");
-            statement.executeUpdate("insert into statusTable (name) values ('просрочено')");
             statement.close();
             connection.close();
         }
@@ -183,6 +150,72 @@ public class MyController {
 
 
         return "Регистрация удачна";
+    }
+
+    @RequestMapping(method = RequestMethod.POST, value = "/add")
+    public String addNewPurchase(@RequestParam(value = "login") String loginParam,
+                                  @RequestParam(value = "password") String passParam,
+                                  @RequestParam(value = "time") String timeParam,
+                                  @RequestParam(value = "price") String priceParam,
+                                  @RequestParam(value = "type") String typeParam,
+                                  @RequestParam(value = "name") String nameParam) {
+
+        try {
+            Class.forName("com.mysql.jdbc.Driver");
+        }
+        catch (ClassNotFoundException e) {
+            e.printStackTrace();
+            return "Driver error";
+        }
+
+        Connection connection;
+        Statement statement;
+        try {
+            connection = DriverManager.getConnection(url + dbName, userName, password);
+        } catch (SQLException e) {
+            restoreDatabase();
+            try {
+                connection = DriverManager.getConnection(url + dbName, userName, password);
+            } catch (SQLException e1) {
+                e1.printStackTrace();
+                return "SQL error";
+            }
+        }
+
+        try {
+            statement = connection.createStatement();
+            ResultSet rs = statement.executeQuery("select * from personTable where login = \'"
+                    + loginParam + "\' and pass = \'" +  passParam + "\';");
+            if (!rs.next()) {
+                rs.close();
+                statement.close();
+                connection.close();
+                return "ошибка авторизации";
+            }
+            rs.close();
+
+            System.out.println("insert into purchaseTable(finishtime, nameofthing, price, statusid, ownerid, isregular)" +
+                    "values(\'" + timeParam + "\', \'" + nameParam +"\', \'" + priceParam + "\'," +
+                    "\'" + "0" + "\', " +
+                    "(select id from personTable where login = \'" + loginParam + "\')"
+                    + ", \'" + typeParam + "\');");
+            statement.executeUpdate("insert into purchaseTable(finishtime, nameofthing, price, status, ownerid, isregular)" +
+                    "values(\'" + timeParam + "\', \'" + nameParam +"\', \'" + priceParam + "\'," +
+                    "\'" + "0" + "\', " +
+                    "(select id from personTable where login = \'" + loginParam + "\')"
+                    + ", \'" + typeParam + "\');");
+
+            statement.close();
+            connection.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+            restorePurchaseTAble();
+            restorePersonTable();
+            return "SQL error";
+        }
+
+        return "Успешно добавлено";
+
     }
 
 }
