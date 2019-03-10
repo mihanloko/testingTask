@@ -13,13 +13,51 @@ public class MyController {
     private String[] headers = {"Название", "Цена", "Количество", "Запланированное время", "Периодичность дней"};
     private String[] labels = {"nameOfThing", "price", "amount", "finishTime", "isRegular"};
 
-    private boolean restoreDatabase() {
-        try {
-            Class.forName("com.mysql.jdbc.Driver");
-        } catch (ClassNotFoundException e) {
-            e.printStackTrace();
-            return false;
+    private StringBuilder ResultSetToHTML(ResultSet rs) throws SQLException {
+        StringBuilder result = new StringBuilder();
+        int columns = headers.length;
+        result.append("<table width = \"80%\" align = \"center\"><tr>");
+        for (int i = 0; i < columns; i++)
+            result.append("<td>").append(headers[i]).append("</td>");
+        result.append("</tr>");
+        while (rs.next()) {
+            result.append("<tr>");
+            for (int i = 0; i < columns; i++)
+                result.append("<td>").append(rs.getString(labels[i])).append("</td>");
+            result.append("</tr>");
         }
+        result.append("</table>");
+        rs.close();
+        return result;
+    }
+    private Connection initConnection() {
+        Connection connection;
+        try {
+            connection = DriverManager.getConnection(url + dbName, userName, password);
+        } catch (SQLException e) {
+            restoreDatabase();
+            try {
+                connection = DriverManager.getConnection(url + dbName, userName, password);
+            } catch (SQLException e1) {
+                e1.printStackTrace();
+                return null;
+            }
+        }
+        return connection;
+    }
+    private boolean checkAuthorization(Statement statement, String login, String password) throws SQLException {
+        ResultSet rs = statement.executeQuery("select * from personTable where login = \'"
+                + login + "\' and pass = \'" + password + "\';");
+        if (!rs.next()) {
+            rs.close();
+            return true;
+        }
+        rs.close();
+        return false;
+    }
+
+    private void restoreDatabase() {
+
         try {
             Connection connection = DriverManager.getConnection(url, userName, password);
             Statement statement = connection.createStatement();
@@ -28,19 +66,13 @@ public class MyController {
             connection.close();
         } catch (SQLException e) {
             e.printStackTrace();
-            return false;
+            return;
         }
 
-        return restorePersonTable() && restorePurchaseTAble();
+        restorePersonTable();
+        restorePurchaseTAble();
     }
-
-    private boolean restorePersonTable() {
-        try {
-            Class.forName("com.mysql.jdbc.Driver");
-        } catch (ClassNotFoundException e) {
-            e.printStackTrace();
-            return false;
-        }
+    private void restorePersonTable() {
         try {
             Connection connection = DriverManager.getConnection(url + dbName, userName, password);
             Statement statement = connection.createStatement();
@@ -59,18 +91,9 @@ public class MyController {
             connection.close();
         } catch (SQLException e) {
             e.printStackTrace();
-            return false;
         }
-        return true;
     }
-
-    private boolean restorePurchaseTAble() {
-        try {
-            Class.forName("com.mysql.jdbc.Driver");
-        } catch (ClassNotFoundException e) {
-            e.printStackTrace();
-            return false;
-        }
+    private void restorePurchaseTAble() {
         try {
             Connection connection = DriverManager.getConnection(url + dbName, userName, password);
             Statement statement = connection.createStatement();
@@ -90,9 +113,7 @@ public class MyController {
             connection.close();
         } catch (SQLException e) {
             e.printStackTrace();
-            return false;
         }
-        return true;
     }
 
     @RequestMapping(method = RequestMethod.POST, value = "/register")
@@ -102,19 +123,12 @@ public class MyController {
                                   @RequestParam(value = "password") String passParam) {
         
 
-        Connection connection;
+        Connection connection = initConnection();
+        if (connection == null)
+            return "Ошибка соеденения";
+
         Statement statement;
-        try {
-            connection = DriverManager.getConnection(url + dbName, userName, password);
-        } catch (SQLException e) {
-            restoreDatabase();
-            try {
-                connection = DriverManager.getConnection(url + dbName, userName, password);
-            } catch (SQLException e1) {
-                e1.printStackTrace();
-                return "SQL error";
-            }
-        }
+
         try {
             statement = connection.createStatement();
             ResultSet rs = statement.executeQuery("select * from personTable where login = \'"
@@ -152,35 +166,22 @@ public class MyController {
                                  @RequestParam(value = "regular", required = false, defaultValue = "0") String regularParam,
                                  @RequestParam(value = "name") String nameParam) {
 
-        
 
-        Connection connection;
+
+        Connection connection = initConnection();
+        if (connection == null)
+            return "Ошибка соеденения";
+
         Statement statement;
         try {
-            connection = DriverManager.getConnection(url + dbName, userName, password);
-        } catch (SQLException e) {
-            restoreDatabase();
-            try {
-                connection = DriverManager.getConnection(url + dbName, userName, password);
-            } catch (SQLException e1) {
-                e1.printStackTrace();
-                return "SQL error";
-            }
-        }
-
-        try {
             statement = connection.createStatement();
-            ResultSet rs = statement.executeQuery("select * from personTable where login = \'"
-                    + loginParam + "\' and pass = \'" + passParam + "\';");
-            if (!rs.next()) {
-                rs.close();
+            if (checkAuthorization(statement, loginParam, passParam)) {
                 statement.close();
                 connection.close();
-                return "ошибка авторизации";
+                return "Ошибка авторизации";
             }
-            rs.close();
 
-            rs = statement.executeQuery("select * from purchaseTable " +
+            ResultSet rs = statement.executeQuery("select * from purchaseTable " +
                     "where nameOfThing = \'"+nameParam+"\' " +
                     "and finishTime = \'" + timeParam + "\' " +
                     "and isRegular = \'" + regularParam +" \' " +
@@ -217,77 +218,31 @@ public class MyController {
     @RequestMapping(method = RequestMethod.POST, value = "/get")
     public String getAllPurchases(@RequestParam(value = "login") String loginParam,
                                   @RequestParam(value = "password") String passParam) {
-        
 
-        Connection connection;
+
+        Connection connection = initConnection();
+        if (connection == null)
+            return "Ошибка соеденения";
+
         Statement statement;
-        try {
-            connection = DriverManager.getConnection(url + dbName, userName, password);
-        } catch (SQLException e) {
-            restoreDatabase();
-            try {
-                connection = DriverManager.getConnection(url + dbName, userName, password);
-            } catch (SQLException e1) {
-                e1.printStackTrace();
-                return "SQL error";
-            }
-        }
-
         StringBuilder result = new StringBuilder();
         try {
             statement = connection.createStatement();
-            ResultSet rs = statement.executeQuery("select * from personTable where login = \'"
-                    + loginParam + "\' and pass = \'" + passParam + "\';");
-            if (!rs.next()) {
-                rs.close();
+            if (checkAuthorization(statement, loginParam, passParam)) {
                 statement.close();
                 connection.close();
-                return "ошибка авторизации";
+                return "Ошибка авторизации";
             }
-            rs.close();
 
-            rs = statement.executeQuery("select * from purchaseTable where now() <= finishTime and status = true " +
+            ResultSet rs = statement.executeQuery("select * from purchaseTable where now() <= finishTime and status = true " +
                     "and (select id from personTable where login = \'" + loginParam + "\') = ownerId;");
             result.append("<center><h1>Актуальные покупки</h1></center>");
-            result.append("<table align = \"center\"><tr>");
-            int columns = headers.length;
-            for (int i = 0; i < columns; i++)
-                result.append("<td>").append(headers[i]).append("</td>");
-            result.append("</tr>");
-            while (rs.next()) {
-                result.append("<tr>");
-                for (int i = 0; i < columns; i++)
-                    result.append("<td>").append(rs.getString(labels[i])).append("</td>");
-                /*String reg = rs.getString(labels[labels.length - 1]);
-                if (reg.equals("1"))
-                    result.append("<td>Да</td>");
-                else
-                    result.append("<td>Нет</td>");*/
-                result.append("</tr>");
-            }
-            result.append("</table>");
-            rs.close();
+            result.append(ResultSetToHTML(rs));
 
-            result.append("<center><h1>Незавершенные покупки</h1></center>");
-            result.append("<table align = \"center\"><tr>");
             rs = statement.executeQuery("select * from purchaseTable where now() > finishTime and status = true " +
                     "and (select id from personTable where login = \'" + loginParam + "\') = ownerId;");
-            for (int i = 0; i < columns; i++)
-                result.append("<td>").append(headers[i]).append("</td>");
-            result.append("</tr>");
-            while (rs.next()) {
-                result.append("<tr>");
-                for (int i = 0; i < columns; i++)
-                    result.append("<td>").append(rs.getString(labels[i])).append("</td>");
-                /*String reg = rs.getString(labels[labels.length - 1]);
-                if (!reg.equals("0"))
-                    result.append("<td></td>");
-                else
-                    result.append("<td>").append(rs.getString(labels[labels.length - 1])).append("</td>");*/
-                result.append("</tr>");
-            }
-            result.append("</table>");
-            rs.close();
+            result.append("<center><h1>Незавершенные покупки</h1></center>");
+            result.append(ResultSetToHTML(rs));
 
             statement.close();
             connection.close();
@@ -306,33 +261,20 @@ public class MyController {
                                      @RequestParam(value = "password") String passParam,
                                      @RequestParam(value = "time", required = false, defaultValue = "") String timeParam,
                                      @RequestParam(value = "name", required = false, defaultValue = "") String nameParam) {
-        
 
-        Connection connection;
+
+        Connection connection = initConnection();
+        if (connection == null)
+            return "Ошибка соеденения";
+
         Statement statement;
         try {
-            connection = DriverManager.getConnection(url + dbName, userName, password);
-        } catch (SQLException e) {
-            restoreDatabase();
-            try {
-                connection = DriverManager.getConnection(url + dbName, userName, password);
-            } catch (SQLException e1) {
-                e1.printStackTrace();
-                return "SQL error";
-            }
-        }
-
-        try {
             statement = connection.createStatement();
-            ResultSet rs = statement.executeQuery("select * from personTable where login = \'"
-                    + loginParam + "\' and pass = \'" + passParam + "\';");
-            if (!rs.next()) {
-                rs.close();
+            if (checkAuthorization(statement, loginParam, passParam)) {
                 statement.close();
                 connection.close();
-                return "ошибка авторизации";
+                return "Ошибка авторизации";
             }
-            rs.close();
 
             if (!nameParam.equals("") && !timeParam.equals("")) {
                 statement.executeUpdate("update purchaseTable " +
@@ -386,33 +328,20 @@ public class MyController {
     public String deleteRegularPurchases(@RequestParam(value = "login") String loginParam,
                                      @RequestParam(value = "password") String passParam,
                                      @RequestParam(value = "name", required = false, defaultValue = "") String nameParam) {
-        
 
-        Connection connection;
+
+        Connection connection = initConnection();
+        if (connection == null)
+            return "Ошибка соеденения";
+
         Statement statement;
         try {
-            connection = DriverManager.getConnection(url + dbName, userName, password);
-        } catch (SQLException e) {
-            restoreDatabase();
-            try {
-                connection = DriverManager.getConnection(url + dbName, userName, password);
-            } catch (SQLException e1) {
-                e1.printStackTrace();
-                return "SQL error";
-            }
-        }
-
-        try {
             statement = connection.createStatement();
-            ResultSet rs = statement.executeQuery("select * from personTable where login = \'"
-                    + loginParam + "\' and pass = \'" + passParam + "\';");
-            if (!rs.next()) {
-                rs.close();
+            if (checkAuthorization(statement, loginParam, passParam)) {
                 statement.close();
                 connection.close();
-                return "ошибка авторизации";
+                return "Ошибка авторизации";
             }
-            rs.close();
 
             statement.executeUpdate("update purchaseTable " +
                     "set status = false " +
@@ -429,6 +358,5 @@ public class MyController {
         }
 
         return "Удачно";
-
     }
 }
