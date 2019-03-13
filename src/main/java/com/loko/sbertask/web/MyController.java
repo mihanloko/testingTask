@@ -13,12 +13,15 @@ public class MyController {
     private String[] headers = {"Название", "Цена", "Количество", "Запланированное время", "Периодичность дней"};
     private String[] labels = {"nameOfThing", "price", "amount", "finishTime", "isRegular"};
 
+    //todo более приличный вывод
+    //todo юнит тесты!
+
     private StringBuilder ResultSetToHTML(ResultSet rs) throws SQLException {
         StringBuilder result = new StringBuilder();
         int columns = headers.length;
         result.append("<table width = \"80%\" align = \"center\"><tr>");
-        for (int i = 0; i < columns; i++)
-            result.append("<td>").append(headers[i]).append("</td>");
+        for (String header : headers)
+            result.append("<td>").append(header).append("</td>");
         result.append("</tr>");
         while (rs.next()) {
             result.append("<tr>");
