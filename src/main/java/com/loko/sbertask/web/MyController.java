@@ -6,16 +6,17 @@ import java.sql.*;
 
 @RestController
 public class MyController {
+
+    //адресс до базы данных
     private String url = "jdbc:mysql://localhost:3306/";
     private String dbName = "data";
-    private String userName = "loko";
+    private String userName = "loko";//логин и пароль для бд
     private String password = "rusakov";
+    //заголовки для таблиц
     private String[] headers = {"Название", "Цена", "Количество", "Запланированное время", "Периодичность дней"};
     private String[] labels = {"nameOfThing", "price", "amount", "finishTime", "isRegular"};
 
-    //todo более приличный вывод
-    //todo юнит тесты!
-
+    //функция, которая преобразует результат запроса в html таблицу
     private StringBuilder ResultSetToHTML(ResultSet rs) throws SQLException {
         StringBuilder result = new StringBuilder();
         int columns = headers.length;
@@ -33,6 +34,7 @@ public class MyController {
         rs.close();
         return result;
     }
+    //проверка соеденения и при необходимости восстановление таблиц
     private Connection initConnection() {
         Connection connection;
         try {
@@ -48,17 +50,25 @@ public class MyController {
         }
         return connection;
     }
-    private boolean checkAuthorization(Statement statement, String login, String password) throws SQLException {
-        ResultSet rs = statement.executeQuery("select * from personTable where login = \'"
-                + login + "\' and pass = \'" + password + "\';");
+    //проверка логина и пароля. true - если такой логин с паролем есть
+    private boolean checkAuthorization(Connection connection, String login, String password) throws SQLException {
+
+        PreparedStatement preparedStatement = connection.prepareStatement("select * from personTable where " +
+                "login = ? and pass = ?;");
+        preparedStatement.setString(1, login);
+        preparedStatement.setString(2, password);
+        ResultSet rs = preparedStatement.executeQuery();
         if (!rs.next()) {
             rs.close();
+            preparedStatement.close();
             return true;
         }
         rs.close();
+        preparedStatement.close();
         return false;
     }
 
+    //восстановление базы данных и таблиц
     private void restoreDatabase() {
 
         try {
@@ -76,6 +86,7 @@ public class MyController {
         restorePurchaseTAble();
     }
     private void restorePersonTable() {
+        //в базе пользователей храянятся имя, фамилия, логин и пароль
         try {
             Connection connection = DriverManager.getConnection(url + dbName, userName, password);
             Statement statement = connection.createStatement();
@@ -97,10 +108,12 @@ public class MyController {
         }
     }
     private void restorePurchaseTAble() {
+        //в таблице покупок хранятся крайнее время покупки, название, цена, статус выполнена ли она
+        //владелец, регулярная ли она (если да, то регулярность в днях), необходимое количество
         try {
             Connection connection = DriverManager.getConnection(url + dbName, userName, password);
             Statement statement = connection.createStatement();
-            statement.executeUpdate("create table purchaseTable\n" +
+            statement.executeUpdate("create table if not exists purchaseTable\n" +
                     "(\n" +
                     "  id          int auto_increment\n" +
                     "    primary key,\n" +
@@ -119,13 +132,14 @@ public class MyController {
         }
     }
 
+    //запись нового пользователя
     @RequestMapping(method = RequestMethod.POST, value = "/register")
-    public String registerNewUser(@RequestParam(value = "name") String nameParam,
-                                  @RequestParam(value = "secondName") String secondNameParam,
-                                  @RequestParam(value = "login") String loginParam,
-                                  @RequestParam(value = "password") String passParam) {
+    public String registerNewUser(@RequestParam(value = "name") String name,
+                                  @RequestParam(value = "secondName") String secondName,
+                                  @RequestParam(value = "login") String login,
+                                  @RequestParam(value = "password") String pass) {
         
-
+        //установить соеденение с бд
         Connection connection = initConnection();
         if (connection == null)
             return "Ошибка соеденения";
@@ -133,20 +147,27 @@ public class MyController {
         Statement statement;
 
         try {
+            //проверить не повторяется ли логин
             statement = connection.createStatement();
             ResultSet rs = statement.executeQuery("select * from personTable where login = \'"
-                    + loginParam + "\';");
+                    + login + "\';");
             if (rs.next()) {
                 rs.close();
                 statement.close();
                 connection.close();
-                return "логин уже существует";
+                return "логин " + login + " уже существует";
             }
 
-            statement.executeUpdate("insert into personTable(name, secondName, login, pass) " +
-                    "values (\'" + nameParam + "\', \'" + secondNameParam +
-                    "\', \'" + loginParam + "\', \'" + passParam + "\');");
-
+            //если нет то добавить нового
+            PreparedStatement preparedStatement =
+                    connection.prepareStatement("insert into personTable(name, secondName, login, pass) " +
+                            "values (?, ?, ?, ?);");
+            preparedStatement.setString(1, name);
+            preparedStatement.setString(2, secondName);
+            preparedStatement.setString(3, login);
+            preparedStatement.setString(4, pass);
+            preparedStatement.executeUpdate();
+            preparedStatement.close();
             rs.close();
             statement.close();
             connection.close();
@@ -156,18 +177,18 @@ public class MyController {
             return "SQL error";
         }
 
-
         return "Регистрация удачна";
     }
 
+    //добавление новой покупки
     @RequestMapping(method = RequestMethod.POST, value = "/add")
-    public String addNewPurchase(@RequestParam(value = "login") String loginParam,
-                                 @RequestParam(value = "password") String passParam,
-                                 @RequestParam(value = "time") String timeParam,
-                                 @RequestParam(value = "price") String priceParam,
-                                 @RequestParam(value = "amount") String amountParam,
-                                 @RequestParam(value = "regular", required = false, defaultValue = "0") String regularParam,
-                                 @RequestParam(value = "name") String nameParam) {
+    public String addNewPurchase(@RequestParam(value = "login") String login,
+                                 @RequestParam(value = "password") String pass,
+                                 @RequestParam(value = "time") String time,
+                                 @RequestParam(value = "price") Double price,
+                                 @RequestParam(value = "amount") Integer amount,
+                                 @RequestParam(value = "regular", required = false, defaultValue = "0") Integer regular,
+                                 @RequestParam(value = "name") String name) {
 
 
 
@@ -177,36 +198,50 @@ public class MyController {
 
         Statement statement;
         try {
+            //проверка, что такой пользователь есть
             statement = connection.createStatement();
-            if (checkAuthorization(statement, loginParam, passParam)) {
+            if (checkAuthorization(connection, login, pass)) {
                 statement.close();
                 connection.close();
                 return "Ошибка авторизации";
             }
 
-            ResultSet rs = statement.executeQuery("select * from purchaseTable " +
-                    "where nameOfThing = \'"+nameParam+"\' " +
-                    "and finishTime = \'" + timeParam + "\' " +
-                    "and isRegular = \'" + regularParam +" \' " +
-                    "and price = \'" + priceParam + "\' " +
-                    "and (select id from personTable where login = \'" + loginParam + "\') = ownerId" +
-                    " and status = 1;");
 
+            //посмотреть, есть ли уже такая активная покупка
+            PreparedStatement preparedStatement =
+                    connection.prepareStatement("select * from purchaseTable where nameOfThing = ? and " +
+                            "finishTime = ? and isRegular = ? and price = ? and (select id from personTable " +
+                            "where login = ? ) = ownerId and status = 1;");
+            preparedStatement.setString(1, name);
+            preparedStatement.setString(2, time);
+            preparedStatement.setInt(3, regular);
+            preparedStatement.setDouble(4, price);
+            preparedStatement.setString(5, login);
+            ResultSet rs = preparedStatement.executeQuery();
+
+            //если есть, то просто добавить количество в существующую
             if (rs.next()) {
                 statement.executeUpdate("update purchaseTable " +
-                        "set amount = amount + \'" + amountParam + "\'" +
-                        "where id = " + rs.getString("id") + ";");
+                        "set amount = amount + " + amount +
+                        " where id = " + rs.getString("id") + ";");
             }
             else {
-                statement.executeUpdate("insert into purchaseTable(finishtime, nameofthing, price, status, ownerid, isregular, amount)" +
-                        "values(\'" + timeParam + "\', \'" + nameParam + "\', \'" + priceParam + "\'," +
-                        "\'" + "1" + "\', " +
-                        "(select id from personTable where login = \'" + loginParam + "\')"
-                        + ", \'" + regularParam + "\', \'" + amountParam + "\');");
+                //иначе добавить ее
+                preparedStatement = connection.prepareStatement("insert into " +
+                        "purchaseTable(finishtime, nameofthing, price, status, ownerid, isregular, amount) " +
+                        "values (?, ?, ?, 1, (select id from personTable where login = ?), ?, ?);");
+                preparedStatement.setString(1, time);
+                preparedStatement.setString(2, name);
+                preparedStatement.setDouble(3, price);
+                preparedStatement.setString(4, login);
+                preparedStatement.setInt(5, regular);
+                preparedStatement.setInt(6, amount);
+                preparedStatement.executeUpdate();
             }
 
             rs.close();
             statement.close();
+            preparedStatement.close();
             connection.close();
         } catch (SQLException e) {
             e.printStackTrace();
@@ -218,9 +253,10 @@ public class MyController {
         return "Успешно добавлено";
     }
 
+    //получение списка актуальных покупок
     @RequestMapping(method = RequestMethod.POST, value = "/get")
-    public String getAllPurchases(@RequestParam(value = "login") String loginParam,
-                                  @RequestParam(value = "password") String passParam) {
+    public String getAllPurchases(@RequestParam(value = "login") String login,
+                                  @RequestParam(value = "password") String pass) {
 
 
         Connection connection = initConnection();
@@ -230,20 +266,23 @@ public class MyController {
         Statement statement;
         StringBuilder result = new StringBuilder();
         try {
+            //проверка пользователя
             statement = connection.createStatement();
-            if (checkAuthorization(statement, loginParam, passParam)) {
+            if (checkAuthorization(connection, login, pass)) {
                 statement.close();
                 connection.close();
                 return "Ошибка авторизации";
             }
 
+            //запросить покупки актуальные покупки и записать их в виде таблицы
             ResultSet rs = statement.executeQuery("select * from purchaseTable where now() <= finishTime and status = true " +
-                    "and (select id from personTable where login = \'" + loginParam + "\') = ownerId;");
+                    "and (select id from personTable where login = \'" + login + "\') = ownerId;");
             result.append("<center><h1>Актуальные покупки</h1></center>");
             result.append(ResultSetToHTML(rs));
 
+            //хапросить незавершенные покупки, и также их оформить
             rs = statement.executeQuery("select * from purchaseTable where now() > finishTime and status = true " +
-                    "and (select id from personTable where login = \'" + loginParam + "\') = ownerId;");
+                    "and (select id from personTable where login = \'" + login + "\') = ownerId;");
             result.append("<center><h1>Незавершенные покупки</h1></center>");
             result.append(ResultSetToHTML(rs));
 
@@ -259,60 +298,79 @@ public class MyController {
         return result.toString();
     }
 
+    //заверщение покупки
     @RequestMapping(method = RequestMethod.POST, value = "/delete")
-    public String deleteOldPurchases(@RequestParam(value = "login") String loginParam,
-                                     @RequestParam(value = "password") String passParam,
-                                     @RequestParam(value = "time", required = false, defaultValue = "") String timeParam,
-                                     @RequestParam(value = "name", required = false, defaultValue = "") String nameParam) {
+    public String deleteOldPurchases(@RequestParam(value = "login") String login,
+                                     @RequestParam(value = "password") String pass,
+                                     @RequestParam(value = "time", required = false, defaultValue = "") String time,
+                                     @RequestParam(value = "name", required = false, defaultValue = "") String name) {
 
 
         Connection connection = initConnection();
         if (connection == null)
             return "Ошибка соеденения";
 
+        String result = "";
         Statement statement;
         try {
             statement = connection.createStatement();
-            if (checkAuthorization(statement, loginParam, passParam)) {
+            if (checkAuthorization(connection, login, pass)) {
                 statement.close();
                 connection.close();
                 return "Ошибка авторизации";
             }
 
-            if (!nameParam.equals("") && !timeParam.equals("")) {
+            //покупка указывается названием или датой, или одновременно обоими параметрами
+            //если покупка нерегулярная то она помечается как выполненная
+            //регулярные же обновляют дату следующего выполнения
+            ResultSet resultSet;
+            String query = "select * from purchaseTable " +
+                    "where status = true and " +
+                    "ownerId = (select id from personTable where login = \'" + login + "\')";
+            if (!name.equals("") && !time.equals("")) {
+                query += " and finishTime = \'" + time + "\' and nameOfThing = \'" + name + "\';";
+                resultSet = statement.executeQuery(query);
+                result = ResultSetToHTML(resultSet).toString();
                 statement.executeUpdate("update purchaseTable " +
                         "set status = false " +
-                        "where isRegular = 0 and nameOfThing = \'" + nameParam + "\' " +
-                        "and finishTime = \'" + timeParam + "\' and " +
-                        "ownerId = (select id from personTable where login = \'" + loginParam + "\');");
+                        "where isRegular = 0 and nameOfThing = \'" + name + "\' " +
+                        "and finishTime = \'" + time + "\' and " +
+                        "ownerId = (select id from personTable where login = \'" + login + "\');");
                 statement.executeUpdate("update purchaseTable " +
                         "set finishTime = finishTime + interval isRegular day " +
-                        "where isRegular > 0 and nameOfThing = \'" + nameParam + "\' " +
-                        "and finishTime = \'" + timeParam + "\' and " +
-                        "ownerId = (select id from personTable where login = \'" + loginParam + "\');");
+                        "where isRegular > 0 and nameOfThing = \'" + name + "\' " +
+                        "and finishTime = \'" + time + "\' and " +
+                        "ownerId = (select id from personTable where login = \'" + login + "\');");
             }
-            else if (!nameParam.equals("")) {
+            else if (!name.equals("")) {
+                query += " and nameOfThing = \'" + name + "\';";
+                resultSet = statement.executeQuery(query);
+                result = ResultSetToHTML(resultSet).toString();
                 statement.executeUpdate("update purchaseTable " +
                         "set status = false " +
-                        "where isRegular = 0 and nameOfThing = \'" + nameParam + "\' and " +
-                        "ownerId = (select id from personTable where login = \'" + loginParam + "\');");
+                        "where isRegular = 0 and nameOfThing = \'" + name + "\' and " +
+                        "ownerId = (select id from personTable where login = \'" + login + "\');");
                 statement.executeUpdate("update purchaseTable " +
                         "set finishTime = finishTime + interval isRegular day " +
-                        "where isRegular > 0 and nameOfThing = \'" + nameParam + "\' and " +
-                        "ownerId = (select id from personTable where login = \'" + loginParam + "\');");
+                        "where isRegular > 0 and nameOfThing = \'" + name + "\' and " +
+                        "ownerId = (select id from personTable where login = \'" + login + "\');");
             }
-            else if (!timeParam.equals("")) {
+            else if (!time.equals("")) {
+                query += " and finishTime = \'" + time + "\';";
+                resultSet = statement.executeQuery(query);
+                result = ResultSetToHTML(resultSet).toString();
                 statement.executeUpdate("update purchaseTable " +
                         "set status = false " +
                         "where isRegular = 0 " +
-                        "and finishTime = \'" + timeParam + "\' and " +
-                        "ownerId = (select id from personTable where login = \'" + loginParam + "\');");
+                        "and finishTime = \'" + time + "\' and " +
+                        "ownerId = (select id from personTable where login = \'" + login + "\');");
                 statement.executeUpdate("update purchaseTable " +
                         "set finishTime = finishTime + interval isRegular day " +
                         "where isRegular > 0 " +
-                        "and finishTime = \'" + timeParam + "\' and " +
-                        "ownerId = (select id from personTable where login = \'" + loginParam + "\');");
+                        "and finishTime = \'" + time + "\' and " +
+                        "ownerId = (select id from personTable where login = \'" + login + "\');");
             }
+
 
             statement.close();
             connection.close();
@@ -323,33 +381,40 @@ public class MyController {
             return "SQL error";
         }
 
-        return "Удачно";
-
+        return "Удачно изменены записи\n" + result;
     }
 
+    //закрытие регулярных покупок
     @RequestMapping(method = RequestMethod.POST, value = "/deleteReg")
-    public String deleteRegularPurchases(@RequestParam(value = "login") String loginParam,
-                                     @RequestParam(value = "password") String passParam,
-                                     @RequestParam(value = "name", required = false, defaultValue = "") String nameParam) {
+    public String deleteRegularPurchases(@RequestParam(value = "login") String login,
+                                     @RequestParam(value = "password") String pass,
+                                     @RequestParam(value = "name") String name) {
 
 
         Connection connection = initConnection();
         if (connection == null)
             return "Ошибка соеденения";
 
+        String result = "";
         Statement statement;
         try {
             statement = connection.createStatement();
-            if (checkAuthorization(statement, loginParam, passParam)) {
+            if (checkAuthorization(connection, login, pass)) {
                 statement.close();
                 connection.close();
                 return "Ошибка авторизации";
             }
 
+            ResultSet resultSet = statement.executeQuery("select * from purchaseTable " +
+                    "where isRegular > 0 and nameOfThing = \'" + name + "\' and " +
+                    "ownerId = (select id from personTable where login = \'" + login + "\') " +
+                    "and status = true;");
+            result = ResultSetToHTML(resultSet).toString();
+            //поиск идет только по названию. помечается как выполненная
             statement.executeUpdate("update purchaseTable " +
                     "set status = false " +
-                    "where isRegular > 0 and nameOfThing = \'" + nameParam + "\' and " +
-                    "ownerId = (select id from personTable where login = \'" + loginParam + "\');");
+                    "where isRegular > 0 and nameOfThing = \'" + name + "\' and " +
+                    "ownerId = (select id from personTable where login = \'" + login + "\');");
 
             statement.close();
             connection.close();
@@ -360,6 +425,6 @@ public class MyController {
             return "SQL error";
         }
 
-        return "Удачно";
+        return "Удачно изменены записи " + result;
     }
 }
